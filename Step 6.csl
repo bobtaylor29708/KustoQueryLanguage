@@ -1,0 +1,112 @@
+// KQL Sample code - Step 5 Time series reporting
+ 
+// This Sample Code is provided for the purpose of illustration only and is not intended to be used in a production environment.  
+// THIS SAMPLE CODE AND ANY RELATED INFORMATION ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR PURPOSE.  
+// We grant You a nonexclusive, royalty-free right to use and modify the 
+// Sample Code and to reproduce and distribute the object code form of the Sample Code, provided that You agree: (i) to not use Our name, logo, or trademarks to market Your software product in which the Sample Code is embedded; 
+// (ii) to include a valid copyright notice on Your software product in which the Sample Code is 
+// embedded; and 
+// (iii) to indemnify, hold harmless, and defend Us and Our suppliers from and against any claims or lawsuits, including attorneys’ fees, that arise or result from the use or distribution of the Sample Code.
+// Please note: None of the conditions outlined in the disclaimer above will supercede the terms and conditions contained within the Premier Customer Services Description.
+// 
+//https://portal.loganalytics.io/demo
+// basket
+// Basket finds all frequent patterns of discrete attributes (dimensions) in the data 
+DnsEvents
+| evaluate autocluster(0.2)
+| project SegmentId,Count,Percent, Computer ,QueryType, SubType, EventId , ClientIP , Name , IPAddresses 
+
+DnsEvents
+| evaluate autocluster(0.015,'~','~','*')
+| project SegmentId,Count,Percent, Computer ,QueryType, SubType, EventId, ClientIP , Name , IPAddresses 
+
+
+Event | take 100000
+| evaluate autocluster(0.02,'~','~','*');
+
+InsightsMetrics
+| evaluate basket(0.3)
+| project SegmentId,Count,Percent,Computer, Origin, Namespace, Name, SourceSystem 
+
+KubeEvents
+| evaluate basket(0.08)
+| project SegmentId,Count,Percent,Computer, ObjectKind ,Reason, Message, SourceComponent 
+
+Event
+| extend splitcolumn = iif(EventLevelName=="Error","Error","other")
+| evaluate diffpatterns(splitcolumn,"Error","other")
+| project SegmentId,CountA,CountB,PercentA,PercentB,PercentDiffAB,Source, EventID, EventLevelName 
+
+KubeEvents
+| reduce by Message 
+| order by Count desc
+
+Event | take 10000
+// We will reduce the Text column which includes random GUIDs.
+// As random GUIDs interfere with the reduce operation, replace them all
+// by the string "GUID".
+| extend EventData=replace(@"[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}", @"GUID", EventData)
+// Now perform the reduce. In case there are other "quasi-random" identifiers with embedded '-'
+// or '_' characters in them, treat these as non-term-breakers.
+| reduce by EventData with characters="-_";
+
+// diffpattern used to the percent differences between two sets
+StormEvents 
+| where monthofyear(StartTime) == 5
+| extend Damage = iff(DamageCrops + DamageProperty > 0 , 1 , 0)
+| project State , EventType , Source , Damage, DamageCrops
+| evaluate diffpatterns(Damage, "0", "1" );
+
+
+// plugins
+// activity_metrics
+OfficeActivity
+| evaluate activity_metrics(OfficeId, TimeGenerated, ago(30d), now(),1d)
+
+// total, distinct, new distinct, aggregated distinct for time period
+OfficeActivity
+| evaluate activity_counts_metrics(OfficeId, TimeGenerated, ago(30d), now(),1d)
+
+// Daily, weekly, monthly engagement calculations
+OfficeActivity
+| evaluate activity_engagement(OfficeId,TimeGenerated,1d,7d)
+
+OfficeActivity
+| evaluate activity_engagement(OfficeId,TimeGenerated,1d,14d)
+
+OfficeActivity
+| evaluate activity_engagement(OfficeId,TimeGenerated,1d,30d)
+
+// lets see what churn and retention we have
+let _start = datetime(2019-06-01);
+let _end = datetime(2019-06-11);
+OfficeActivity
+| evaluate new_activity_metrics(OfficeId,TimeGenerated,_start,_end, 7d, _start)
+| project from=from_TimeGenerated, to= to_TimeGenerated , new_values = dcount_new_values, retained = dcount_retained_values,churn = dcount_churn_values, retention_rate, churn_rate
+
+//Active kb articles
+let Start = datetime(2019-06-01);
+let End = datetime(2019-06-30);
+let LookbackWindow = 7d;
+let Period = 1d;
+let ActivePeriods = 3;
+let Bin = 7d;
+Update
+| evaluate active_users_count(KBID,TimeGenerated,Start, End, LookbackWindow,Period,ActivePeriods, Bin)
+
+
+//funnel_sequence
+// great for a sankey diagram - so we can export to power bi to visualize
+// Looking on StormEvents statistics: 
+// Q1: What happens before Tornado event?
+// Q2: What happens after Tornado event?
+// produces three results
+// 1. prev-seq-next dcount
+// 2. prev-seq dcount (transitions)
+// 3. sequence next dcount
+StormEvents
+| evaluate funnel_sequence(EpisodeId, StartTime, datetime(2007-01-01), datetime(2008-01-01), 1d,365d, EventType, dynamic(['Tornado']));
+
+
+
+  
